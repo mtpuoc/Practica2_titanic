@@ -1,0 +1,337 @@
+---
+title: "Pràctica 2"
+author: "mtp1268"
+date: "14/12/2021"
+output: 
+  html_document:
+    theme: cerulean
+    toc: yes
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## 1 Descripció del dataset
+Es carrega el dataset al programa R:
+  
+```{r echo=FALSE}
+
+library(readr)
+titanic_original <- read_csv("../docs/titanic.csv")
+
+```
+
+Es mostra el resum del dataset que s'ha carregat
+```{r}
+summary(titanic_original)
+
+str(titanic_original)
+
+head(titanic_original)
+```
+
+## 2 Integració i selecció de les dades d’interès a analitzar
+
+Es recupera els noms de les variables perque s'eliminaran les que no descriuen a les persones ni al tipus de bitllet:
+
+```{r}
+names(titanic_original)
+```
+
+Per tant les variables que es poden eliminar del dataset son: Name, ticket, fare, cabin
+
+```{r}
+titanic <- titanic_original[,-c(4,9,10,11)]
+
+```
+
+Es prepara una variable categoria per a tenir agrupat els passatges que son menors, del 18 al 60 i mes grans que 60 per a tenir la variable creada per a un futur analisis.
+
+```{r}
+titanic["group_age"] <- cut(titanic$Age, breaks = c(-1,17,60,Inf), labels = c("menors", "18-60", ">60"), include.lowest = TRUE)
+```
+
+## 3 Neteja de les dades
+
+Es comprova els valors unics per a cada variable:
+
+```{r}
+head(unique(titanic$PassengerId))
+unique(titanic$Survived)
+unique(titanic$Pclass)
+unique(titanic$Sex)
+unique(titanic$Age)
+unique(titanic$SibSp)
+unique(titanic$Parch)
+unique(titanic$Embarked)
+
+```
+
+A simple vista es veu que els valors son adequats, s'ha detectat alguns valors nulls es mira a quines variables hi ha mes casos:
+
+```{r}
+colSums(is.na(titanic))
+
+```
+
+### 3.1 Les dades contenen zeros o elements buits? Com gestionaries aquests casos?
+
+Com es pot identificar hi ha les variables **age i embarked que tenen valors nulls**, com que tenim informació suficient es pot calcular amb algun algoritme de clusters per identificar qui valor pot tenir l'edat, en aquest cas es realitzara amb el KNN i es tindra en compte el sexe del passatger:
+
+```{r}
+library(class)
+titanic.knn <- na.omit(titanic)
+titanic.knn$Embarked <- as.numeric(as.factor(titanic.knn$Embarked))
+
+predict_age_for_sex_passenger <- function(subset){
+  rows <- sample(1:nrow(subset), 0.8*nrow(subset))
+  train <- subset[rows,]
+  test <- subset[-rows,]
+  model <- knn(train, test ,train$Age)
+  
+  result <- table(model)
+  return(as.integer(names(result[result==max(result)])) )
+}
+
+#Male
+titanic.knn.male <- titanic.knn[titanic.knn$Sex == "male",c(1,2,3,5,6,7)]
+age.male <- mean(predict_age_for_sex_passenger(titanic.knn.male))
+
+
+#Female
+titanic.knn.female <- titanic.knn[titanic.knn$Sex == "female",c(1,2,3,5,6,7)]
+age.female <- mean(predict_age_for_sex_passenger(titanic.knn.female))
+
+```
+
+Amb els valors que ha predit l'algorisme es procedeix a informar al dataset de titanic:
+
+```{r}
+table(is.na(titanic$Age))
+
+titanic[titanic$Sex =="male" & is.na(titanic$Age),]$Age <- age.male
+
+titanic[titanic$Sex =="female" & is.na(titanic$Age),]$Age <- age.female
+
+table(is.na(titanic$Age))
+```
+
+Pel cas de **la variable Embarked**, es procedira a buscar quin es el valor que mes es repeteix per a informar les observacions que tenen un valor null:
+
+```{r}
+table(titanic$Embarked)
+```
+
+Com es pot veure el resultat es S
+
+```{r}
+titanic[is.na(titanic$Embarked),]$Embarked <- "S"
+```
+
+Es categoritza la variable Embarked a númerica on:
+
+* S per 1
+
+* C per 2
+
+* Q per 3
+
+```{r}
+titanic["Embarked_cat"] <- 3
+
+titanic[titanic$Embarked == "S",]$Embarked_cat <- 1
+
+titanic[titanic$Embarked == "C",]$Embarked_cat <- 2
+
+```
+
+
+### 3.2 Identificació i tractament de valors extrems.
+
+Per a la revisió de outliers es revisaran a les variables numeriques continues com: Age, SibSp i Parch, ja que la resta de variables estan categoritzades i per tant tenen un rang definit.
+
+
+```{r}
+par(mfrow=c(1,3))
+outliers.age <- boxplot(titanic$Age)
+outliers.sib <- boxplot(titanic$SibSp)
+outliers.par <- boxplot(titanic$Parch)
+par(mfrow=c(1,1))
+```
+
+Es pot veure que en cada variable hi ha algun valor fora del normal i per tant es revisa quins son:
+
+```{r}
+outliers.age$out
+outliers.sib$out
+outliers.par$out
+```
+
+Amb els valors outliers anteriors pot haver casos que les persones siguin molt grans o molt petites igual que poder viatgin soles o amb familia i que per tant aquests registres no s'haurien de omitir ja que es tindran en compte els passatger amb aquestes característiques.
+
+
+## 4 Anàlisi de les dades
+
+Avanç de generar el CSV amb les dades netejades, al haver treballat la variable Edat amb els valors nulls s'ha de tornar a procesar l'agrupació per edat:
+
+```{r}
+titanic["group_age"] <- cut(titanic$Age, breaks = c(-1,17,60,Inf), labels = c("menors", "18-60", ">60"), include.lowest = TRUE)
+```
+
+
+Tal com es comenta a l'enunciat es vol tenir el dataset netejat, per tant es crea el fitxer titanit_clean.csv
+
+```{r}
+write.csv(titanic,"../docs/titanic_clean.csv",row.names = FALSE)
+```
+
+
+### 4.1 Selecció dels grups de dades que es volen analitzar/comparar
+
+Es vol estudiar els grups d'edat que han sobreviscut i els que no:
+
+```{r}
+titanic.survived <- titanic[titanic$Survived == 1,]
+
+titanic.no.survived <- titanic[titanic$Survived == 0,]
+
+```
+
+### 4.2 Comprovació de la normalitat i homogeneïtat de la variància
+
+Per a la comprovació de normalitat es realitzara amb el test de Kolmogorov-Smirnov dels dos grups creats anteriorment:
+
+```{r}
+y <- pnorm
+
+ks.test(titanic.survived$Age, y, mean(titanic.survived$Age), sd(titanic.survived$Age))
+
+```
+
+Les variables Survived donen un p-value = 0.004339 inferior al 0.05 i per tant no te una distribució normal
+
+```{r}
+ks.test(titanic.no.survived$Age, y, mean(titanic.no.survived$Age), sd(titanic.no.survived$Age))
+```
+
+Igual que pasa amb el dataset anterior, la distribució no es normal ja que te un valor mes petit que 0.05.
+
+
+**Nota:** _Per calcular la normalitat s'ha tret de la documentació a l'apartat de Comprovació de la normalitat del temari de Introducció a la neteja de dades_
+
+
+### 4.3 Aplicació de proves estadístiques per comparar els grups de dades
+> En funció de les dades i de l’objectiu de l’estudi, aplicar proves de contrast d’hipòtesis, correlacions, regressions, etc. Aplicar almenys tres mètodes d’anàlisi diferents. 
+
+```{r}
+library(corrplot)
+c <- cor(titanic.survived[,c("Survived","Pclass","Age", "SibSp", "Parch", "Embarked_cat")])
+c
+corrplot(c)
+```
+
+Com es pot veure al gràfic de correlacions la columna Survived no hi ha cap relació forta entre les variables, el que si es pot identificar la relació de la edat del passatger i el tipus de bitllet.
+
+Es prova amb un altre model a veure si ens dona mes informació sobre les relacions de Survived.
+
+```{r}
+summary(lm(Survived ~ Pclass, data = titanic))
+
+summary(lm(Survived ~ Sex, data = titanic))
+
+summary(lm(Survived ~ Age, data = titanic))
+
+summary(lm(Survived ~ SibSp, data = titanic))
+
+summary(lm(Survived ~ Parch , data = titanic))
+
+summary(lm(Survived ~ Embarked_cat, data = titanic))
+
+```
+
+Es prepara una taula amb el resum de cada variable:
+
+Variable | R-squared
+---------| ----------
+Pclass   | 0.1146
+Sex      | 0.2952
+Age      | 0.00018
+SibSp    | 0.0012
+Parch    | 0.0066
+Embarked_cat | 0.011
+
+Com es pot veure les variables que mes influeixen per sobreviure **es el sexe i el tipus de classe del bitllet**,  en canvi, l'edat dels passatgers no te gairebe cap relació amb sobreviure.
+
+Ara es comproba entre els dos grups si els que sobreviuen son els mes joves, per aixo es prova amb la hipotesi nul.la i alternativa, generant avanç la grafica de correlacions:
+
+```{r}
+cn <- cor(titanic.no.survived[,c("Survived","Pclass","Age", "SibSp", "Parch", "Embarked_cat")])
+corrplot(cn)
+```
+
+Les hipotesis que es vol estudiar son les següents:
+
+H0: μs <= μk
+
+H1: μs > μk
+
+Com s'ha analitzat al punt anterior la variable de Age no te una distribució normal, donat que cada grup es major que 30 observacions es pot conciderar que el t-test sera suficientment robust:
+
+```{r}
+t.test(titanic.survived$Age,titanic.no.survived$Age,alternative="greater", var.equal=FALSE)
+```
+
+Com es pot veure el pvalue es superior al 0.05 i per tant s'accepta la hipotesis nul.la amb el resultat que la mitjana de edat dels sobrevivents es la mes jove o de la mateixa edat.
+
+
+_Per la realització d'aquest ultim s'ha tret la informació de la seguent pagina web: https://www.cienciadedatos.net/documentos/12_t-test _
+
+## 5 Representació dels resultats a partir de taules i gràfiques
+Com s'ha mostrat anteriorment les correlacions que hi ha entre les variables dels passatger supervivents es representa gràficament:
+
+```{r}
+corrplot(c)
+
+cn <- cor(titanic.no.survived[,c("Survived","Pclass","Age", "SibSp", "Parch", "Embarked_cat")])
+corrplot(cn)
+```
+
+També per a comprovar si l'edat te una distribució normal es pot realitzar per un histograma o un gràfic de densitat:
+
+```{r}
+hist(titanic.survived$Age)
+plot(density(titanic.survived$Age))
+hist(titanic.no.survived$Age)
+plot(density(titanic.no.survived$Age))
+
+```
+
+Com es pot veure la primera es una distribució binomial i la segona no te una distribució normal. Es pot analitzar si la hipotesis es correcta a traves del gràfic del boxplot:
+
+```{r}
+par(mfrow=c(1,2))
+boxplot(titanic.survived$Age, main="Survived")
+boxplot(titanic.no.survived$Age, main="No Survived")
+par(mfrow=c(1,1))
+```
+
+Com es pot veure els supervivents tenen una edat mes alta que els que van morir, amb el resultat anterior de la hipotesis s'afirmava que els supervivents tenien menys edat que els joves. Ja per acabar es revisa el dataset quina quantitat son supervivents:
+
+```{r}
+plot(table(titanic$Survived))
+prop.table(table(titanic$Survived))
+```
+
+
+## 6 Resolució del problema
+> A partir dels resultats obtinguts, quines són les conclusions? Els resultats permeten respondre al problema?
+
+Inicialment s'ha proposat poder identificar quins passatgers han sobreviscut amb les variables de persona i del tipus de bitllet, les conclucions que s'ha pogut estudiar, es que no depen d'aquestes variables si sobreviure o no ja que a la gràfica de correlacions no s'ha pogut identificar cap relació, s'ha aplicat una regressió lineal simple sobre la variable de sobreviure i s'ha identificat que hi ha una relació amb les variables d'edat i el tipus de bitlet, poder es degut a qui te mes edat es pot permetre un tipus de bitllet mes car i tenir un lloc millor pocisionat en el vaixell, en canvi, no te cap influencia l'edat del passatger.
+
+Si s'estudia els passatgers que no han sobreviscut, s'arriba a la mateixa conclusió. Per a cada grup s'identifica que les persones més joves tenen una probabilitat de sobreviure.
+
+Aixi que acabar costa molt poder identificar les persones que poden sobrviure amb refenrencia a la hipotesis les persones joves tenen una posibilitat de viure i les persones que haguin comprat algun tipus de bitllet mes elevat.
+
